@@ -115,10 +115,10 @@ Group=your_user
 WorkingDirectory=/home/your_user/your-repo-name
 Environment="PATH=/home/your_user/your-repo-name/venv/bin"
 ExecStart=/home/your_user/your-repo-name/venv/bin/gunicorn --workers 3 --bind 0.0.0.0:5000 main_web:app
-```
 
 [Install]
-WantedBy=multi-user.target`
+WantedBy=multi-user.target
+```
 
 ### Enable and start the service - Reload systemd to recognize the new service
 `sudo systemctl daemon-reload`
