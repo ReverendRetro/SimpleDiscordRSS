@@ -36,8 +36,8 @@ Follow these steps to get your RSS bot up and running on a Debian-based server.
 
 `git clone [https://github.com/ReverendRetro/SimpleDiscordRSS](https://github.com/ReverendRetro/SimpleDiscordRSS.git](https://github.com/ReverendRetro/SimpleDiscordRSS.git)`
 
-Ensure you have the following files in your project directory (e.g., /home/your_user/discord-rss-bot):
-main_web.py (The web interface)
+Ensure you have the following files in your project directory (e.g., /home/your_user/discord-rss-bot): <br>
+main_web.py (The web interface) <br>
 scheduler.py (The background feed checker)
 
 ## 2. Set Up Python Environment
