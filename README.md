@@ -104,6 +104,7 @@ You can then access the web control panel at http://<your_server_ip>:5000.
 
 ### Paste the following configuration. Remember to replace your_user with your actual Linux username and update the paths if necessary.
 
+```
 [Unit]
 Description=Gunicorn instance to serve Discord RSS Bot
 After=network.target
@@ -114,6 +115,7 @@ Group=your_user
 WorkingDirectory=/home/your_user/your-repo-name
 Environment="PATH=/home/your_user/your-repo-name/venv/bin"
 ExecStart=/home/your_user/your-repo-name/venv/bin/gunicorn --workers 3 --bind 0.0.0.0:5000 main_web:app
+```
 
 [Install]
 WantedBy=multi-user.target`
