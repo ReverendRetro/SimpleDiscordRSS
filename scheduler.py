@@ -16,22 +16,34 @@ CONFIG_FILE = "config.json"
 SENT_ARTICLES_FILE = "sent_articles.yaml"
 FEED_STATE_FILE = "feed_state.json"
 
+# --- Threading Lock ---
+# This lock prevents race conditions when multiple threads access the sent_articles file.
+file_lock = threading.Lock()
+
 # --- Set a common User-Agent for all feedparser requests ---
 feedparser.USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/116.0"
 
+def initialize_files():
+    """Ensure all necessary files exist before the app starts."""
+    if not os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump({"FEEDS": []}, f)
+        print(f"Created default {CONFIG_FILE}")
+    if not os.path.exists(SENT_ARTICLES_FILE):
+        with open(SENT_ARTICLES_FILE, 'w') as f:
+            yaml.dump([], f)
+        print(f"Created default {SENT_ARTICLES_FILE}")
+    if not os.path.exists(FEED_STATE_FILE):
+        with open(FEED_STATE_FILE, 'w') as f:
+            json.dump({}, f)
+        print(f"Created default {FEED_STATE_FILE}")
+
 def load_config():
     with open(CONFIG_FILE, 'r') as f:
-        return json.load(f)
-
-def save_sent_articles(sent_articles):
-    with open(SENT_ARTICLES_FILE, 'w') as f:
-        yaml.dump(list(sent_articles), f)
-
-def load_sent_articles():
-    with open(SENT_ARTICLES_FILE, 'r') as f:
         content = f.read()
-        if not content: return set()
-        return set(yaml.safe_load(content) or [])
+        if not content:
+            return {"FEEDS": []}
+        return json.loads(content)
 
 def save_feed_state(feed_state):
      with open(FEED_STATE_FILE, 'w') as f:
@@ -40,8 +52,44 @@ def save_feed_state(feed_state):
 def load_feed_state():
     with open(FEED_STATE_FILE, 'r') as f:
         content = f.read()
-        if not content: return {}
-        return json.load(f)
+        if not content:
+            return {}
+        return json.loads(content)
+
+def post_if_new(article_id, message_content, webhook_url):
+    """
+    Atomically checks if an article is new and posts it if so.
+    This function is thread-safe.
+    """
+    with file_lock:
+        # 1. Read the current list of sent articles
+        sent_articles = set()
+        try:
+            with open(SENT_ARTICLES_FILE, 'r') as f:
+                content = f.read()
+                if content:
+                    sent_articles = set(yaml.safe_load(content) or [])
+        except FileNotFoundError:
+            pass # File will be created on write
+
+        # 2. Check if the article is new
+        if article_id not in sent_articles:
+            print(f"New article found, posting: {message_content.splitlines()[0]}")
+            
+            # 3. Post to Discord
+            payload = {"content": message_content}
+            response = requests.post(webhook_url, json=payload)
+            
+            if response.status_code < 400:
+                # 4. If successful, add to the list and save
+                sent_articles.add(article_id)
+                with open(SENT_ARTICLES_FILE, 'w') as f:
+                    yaml.dump(list(sent_articles), f)
+                return True
+            else:
+                print(f"Error sending to webhook: {response.status_code} {response.text}")
+                return False
+        return False # Article was already sent
 
 class FeedScheduler:
     def __init__(self):
@@ -66,7 +114,6 @@ class FeedScheduler:
                 
                 if not last_checked or (now - last_checked).total_seconds() >= feed_config['update_interval']:
                     print(f"Processing feed: {feed_config['url']}")
-                    # We run this in a thread to prevent one slow feed from blocking all others.
                     threading.Thread(target=self.check_single_feed, args=(feed_config,), daemon=True).start()
                     feed_state[feed_id] = now.isoformat()
             
@@ -76,9 +123,6 @@ class FeedScheduler:
 
     def check_single_feed(self, feed_config):
         """Fetches and posts new entries for a single feed via webhook."""
-        sent_articles = load_sent_articles()
-        new_articles_found = False
-        
         try:
             feed_data = feedparser.parse(feed_config['url'])
             if feed_data.bozo:
@@ -86,26 +130,14 @@ class FeedScheduler:
 
             for entry in reversed(feed_data.entries):
                 article_id = entry.get('id', entry.link)
-                if article_id not in sent_articles:
-                    print(f"New article found: {entry.title}")
-                    
-                    message_content = f"**{feed_data.feed.title}**: {entry.title}\n{entry.link}"
-                    payload = {"content": message_content}
-                    
-                    response = requests.post(feed_config['webhook_url'], json=payload)
-                    if response.status_code >= 400:
-                        print(f"Error sending to webhook for {feed_config['url']}: {response.status_code} {response.text}")
-                    else:
-                        new_articles_found = True
-                        sent_articles.add(article_id)
+                message_content = f"**{feed_data.feed.title}**: {entry.title}\n{entry.link}"
+                post_if_new(article_id, message_content, feed_config['webhook_url'])
 
         except Exception as e:
             print(f"Error processing feed {feed_config['url']}: {e}")
 
-        if new_articles_found:
-            save_sent_articles(sent_articles)
-
 if __name__ == "__main__":
+    initialize_files()
     scheduler = FeedScheduler()
     try:
         scheduler.run()
