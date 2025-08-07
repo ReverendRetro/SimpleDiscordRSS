@@ -122,26 +122,43 @@ class FeedScheduler:
                 last_checked_str = feed_state.get(feed_id)
                 last_checked = datetime.fromisoformat(last_checked_str) if last_checked_str else None
                 
-                if not last_checked or (now - last_checked).total_seconds() >= feed_config['update_interval']:
+                # Determine if this is the first time we're checking this feed.
+                is_initial_check = not last_checked
+
+                if is_initial_check or (now - last_checked).total_seconds() >= feed_config['update_interval']:
                     print(f"Processing feed: {feed_config['url']}")
-                    threading.Thread(target=self.check_single_feed, args=(feed_config,), daemon=True).start()
+                    threading.Thread(target=self.check_single_feed, args=(feed_config, is_initial_check), daemon=True).start()
                     feed_state[feed_id] = now.isoformat()
             
             save_feed_state(feed_state)
             time.sleep(60) # Check every 60 seconds
         print("Scheduler stopped.")
 
-    def check_single_feed(self, feed_config):
-        """Fetches and posts new entries for a single feed via webhook."""
+    def check_single_feed(self, feed_config, initial_check=False):
+        """
+        Fetches and posts new entries for a single feed via webhook.
+        :param feed_config: The configuration dictionary for the feed.
+        :param initial_check: If True, only the latest new item is posted. Otherwise, all new items are posted.
+        """
         try:
             feed_data = feedparser.parse(feed_config['url'])
             if feed_data.bozo:
                 print(f"Warning: Feed {feed_config['url']} may be malformed.")
 
-            for entry in reversed(feed_data.entries):
-                article_id = entry.get('id', entry.link)
-                message_content = f"**{feed_data.feed.title}**: {entry.title}\n{entry.link}"
-                post_if_new(article_id, message_content, feed_config['webhook_url'])
+            if initial_check:
+                # On the first run, only post the single most recent article.
+                if feed_data.entries:
+                    print("Performing initial check, processing only the latest entry.")
+                    latest_entry = feed_data.entries[0]
+                    article_id = latest_entry.get('id', latest_entry.link)
+                    message_content = f"**{feed_data.feed.title}**: {latest_entry.title}\n{latest_entry.link}"
+                    post_if_new(article_id, message_content, feed_config['webhook_url'])
+            else:
+                # On subsequent runs, post all new articles, oldest first.
+                for entry in reversed(feed_data.entries):
+                    article_id = entry.get('id', entry.link)
+                    message_content = f"**{feed_data.feed.title}**: {entry.title}\n{entry.link}"
+                    post_if_new(article_id, message_content, feed_config['webhook_url'])
 
         except Exception as e:
             print(f"Error processing feed {feed_config['url']}: {e}")
