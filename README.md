@@ -43,13 +43,13 @@ scheduler.py (The background feed checker)
 ## 2. Set Up Python Environment
 Create a virtual environment to keep the project's dependencies isolated.
 
-## Navigate to your project directory
+### Navigate to your project directory
 `cd /path/to/your/discord-rss-bot`
 
-## Create the virtual environment
+### Create the virtual environment
 `python3 -m venv venv`
 
-## Activate it
+### Activate it
 `source venv/bin/activate`
 
 
@@ -57,7 +57,7 @@ Create a virtual environment to keep the project's dependencies isolated.
 Create a requirements.txt file:
 `nano requirements.txt`
 
-Add the following lines to the file:
+# Add the following lines to the file:
 ```
 feedparser
 PyYAML
@@ -103,7 +103,7 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
-## 2. Create the Scheduler Service
+## 6. Create the Scheduler Service
 Create a second service file for the background scheduler.
 `sudo nano /etc/systemd/system/discord-rss-scheduler.service`
 
@@ -125,7 +125,7 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
-## 3. Enable and Start the Services
+## 7. Enable and Start the Services
 Now, tell systemd to recognize, enable, and start your new services.
 ### Reload systemd to recognize the new service files
 `sudo systemctl daemon-reload`
@@ -151,7 +151,7 @@ Check for errors:
 
 The scheduler log should show "Scheduler started." and "Scheduler running check..." messages.
 
-## 4. Usage
+## 8. Usage
 Once the services are running, navigate to http://<your_server_ip>:5000 in your web browser.
 
 - View Feeds: The main page lists all currently configured RSS feeds.
