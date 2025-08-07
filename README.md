@@ -23,42 +23,41 @@ A lightweight, self-hostable Discord bot that fetches RSS/Atom feeds and posts n
 
 # Requirements
 
-- A Linux server (e.g., Debian, Ubuntu) or a local machine for hosting.
+- A Linux server (e.g., Debian, Ubuntu) or a local machine for hosting. Also should work on Windows and MacOS but I am unsure how to test there.
 
 - Python 3.8+
 
 - pip and venv for managing Python packages.
 
 # Setup & Installation
-
 Follow these steps to get your RSS bot up and running on a Debian-based server.
 
-## 1. Clone the Repository
-
-First, clone this repository to a directory on your server.
+## 1. Clone this repository to a directory on your server.
 
 `git clone [https://github.com/ReverendRetro/SimpleDiscordRSS](https://github.com/ReverendRetro/SimpleDiscordRSS.git](https://github.com/ReverendRetro/SimpleDiscordRSS.git)`
 
+Ensure you have the following files in your project directory (e.g., /home/your_user/discord-rss-bot):
+main_web.py (The web interface)
+scheduler.py (The background feed checker)
 
 ## 2. Set Up Python Environment
-
 Create a virtual environment to keep the project's dependencies isolated.
-### Move into the Directory
-`cd SimpleDiscordRSS`
 
-### Create the virtual environment
+## Navigate to your project directory
+`cd /path/to/your/discord-rss-bot`
+
+## Create the virtual environment
 `python3 -m venv venv`
 
-### Activate it
+## Activate it
 `source venv/bin/activate`
 
+
 ## 3. Install Dependencies
-
-### Create a requirements.txt file:
-
+Create a requirements.txt file:
 `nano requirements.txt`
 
-### Add the following lines to the file:
+Add the following lines to the file:
 ```
 feedparser
 PyYAML
@@ -66,76 +65,94 @@ Flask
 gunicorn
 requests
 ```
-Save the file (Ctrl+X, Y, Enter) 
 
-### install the packages:
-
+Save the file (Ctrl+X, Y, Enter) and then install the packages:
 `pip install -r requirements.txt`
 
-### Get a Discord Webhook URL
 
+## 4. Get a Discord Webhook URL
 You'll need a webhook URL for each channel you want to post to.
+In your Discord server, go to the channel settings (click the ⚙️ icon).
+Navigate to the Integrations tab.
+Click "Create Webhook".
+Give the webhook a name (e.g., "RSS Feeds") and copy the Webhook URL.
 
-- In your Discord server, go to the channel settings (click the ⚙️ icon).
 
-- Navigate to the Integrations tab.
+## 5. Running the Bot as a Service (Recommended)
+To ensure the bot runs 24/7 and restarts automatically, we will set up two separate systemd services: one for the web UI and one for the scheduler.
+## 1. Create the Web UI Service
+Create a service file for the Gunicorn web server.
+`sudo nano /etc/systemd/system/discord-rss-web.service`
 
-- Click "Create Webhook".
 
-- Give the webhook a name (e.g., "RSS Feeds") and copy the Webhook URL.
-
-### 4. Running the Bot
-
-You can run the bot for testing or set it up as a persistent service.
-
-### To run the bot directly for testing purposes make sure your virtual environment is active
-`source venv/bin/activate`
-
-### Run the Flask app
-`python main_web.py`
-
-You can then access the web control panel at http://<your_server_ip>:5000.
-
-### As a Persistent Service (Recommended) To ensure the bot runs 24/7 and restarts automatically, set it up as a systemd service.
-
-### Create a service file:
-
-`sudo nano /etc/systemd/system/discord-rss-bot.service`
-
-### Paste the following configuration. Remember to replace your_user with your actual Linux username and update the paths if necessary.
-
+Paste the following configuration. Remember to replace your_user with your actual Linux username and update the paths if necessary.
 ```
 [Unit]
-Description=Gunicorn instance to serve Discord RSS Bot
+Description=Gunicorn instance to serve Discord RSS Bot Web UI
 After=network.target
 
 [Service]
 User=your_user
 Group=your_user
-WorkingDirectory=/home/your_user/your-repo-name
-Environment="PATH=/home/your_user/your-repo-name/venv/bin"
-ExecStart=/home/your_user/your-repo-name/venv/bin/gunicorn --workers 3 --bind 0.0.0.0:5000 main_web:app
+WorkingDirectory=/home/your_user/discord-rss-bot
+Environment="PATH=/home/your_user/discord-rss-bot/venv/bin"
+ExecStart=/home/your_user/discord-rss-bot/venv/bin/gunicorn --workers 3 --bind 0.0.0.0:5000 "main_web:app"
+Restart=always
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-### Enable and start the service - Reload systemd to recognize the new service
+## 2. Create the Scheduler Service
+Create a second service file for the background scheduler.
+`sudo nano /etc/systemd/system/discord-rss-scheduler.service`
+
+
+Paste the following configuration, again replacing your_user and the paths.
+```
+[Unit]
+Description=Scheduler for Discord RSS Bot
+After=network.target
+
+[Service]
+User=your_user
+Group=your_user
+WorkingDirectory=/home/your_user/discord-rss-bot
+ExecStart=/home/your_user/discord-rss-bot/venv/bin/python scheduler.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## 3. Enable and Start the Services
+Now, tell systemd to recognize, enable, and start your new services.
+### Reload systemd to recognize the new service files
 `sudo systemctl daemon-reload`
 
-### Start the service now
-`sudo systemctl start discord-rss-bot`
+### Enable and start the web UI service
+`sudo systemctl enable discord-rss-web.service`
+`sudo systemctl start discord-rss-web.service`
 
-### Enable the service to start automatically on boot
-`sudo systemctl enable discord-rss-bot`
+### Enable and start the scheduler service
+`sudo systemctl enable discord-rss-scheduler.service`
+`sudo systemctl start discord-rss-scheduler.service`
 
-### Check the status:
 
-`sudo systemctl status discord-rss-bot`
+### Check the Status
+You can check the status of each service independently:
+`sudo systemctl status discord-rss-web.service`
+`sudo systemctl status discord-rss-scheduler.service`
 
-# 5. Usage
+Check for errors:
+`sudo journalctl -u discord-rss-scheduler -n 50 --no-pager`
+`sudo systemctl start discord-rss-web -n 50 --no-pager`
 
-- Once the service is running, navigate to http://<your_server_ip>:5000 in your web browser.
+
+The scheduler log should show "Scheduler started." and "Scheduler running check..." messages.
+
+## 4. Usage
+Once the services are running, navigate to http://<your_server_ip>:5000 in your web browser.
 
 - View Feeds: The main page lists all currently configured RSS feeds.
 
@@ -147,16 +164,13 @@ WantedBy=multi-user.target
 
 - Refresh Interval: How often (in seconds) the bot should check for new articles.
 
-## When you add a new feed, the bot will perform an immediate check to post the single latest article. After that, it will check for all new articles based on the refresh interval you set.
+- Edit Feed: Click the "Edit" link next to any feed to modify its settings.
 
-### Configuration Files
+- The scheduler will automatically pick up any new or edited feeds on its next cycle (within 60 seconds).
 
+# Configuration Files
 The bot automatically creates and manages the following files in the project directory:
-
 - config.json: Stores the list of feeds you've added through the web UI.
-
 - sent_articles.yaml: Acts as the bot's memory, storing a list of article IDs that have already been posted to prevent duplicates.
-
 - feed_state.json: Keeps track of the last time each feed was checked to manage update intervals.
-
 You do not need to edit these files manually.
