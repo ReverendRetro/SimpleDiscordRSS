@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 CONFIG_FILE = "config.json"
 SENT_ARTICLES_FILE = "sent_articles.yaml"
 FEED_STATE_FILE = "feed_state.json"
+MAX_SENT_ARTICLES = 10000 # The maximum number of article IDs to store.
 
 # --- Threading Lock ---
 # This lock prevents race conditions when multiple threads access the sent_articles file.
@@ -59,21 +60,23 @@ def load_feed_state():
 def post_if_new(article_id, message_content, webhook_url):
     """
     Atomically checks if an article is new and posts it if so.
-    This function is thread-safe.
+    This function is thread-safe and prunes the sent articles list.
     """
     with file_lock:
         # 1. Read the current list of sent articles
-        sent_articles = set()
+        sent_articles_list = []
         try:
             with open(SENT_ARTICLES_FILE, 'r') as f:
                 content = f.read()
                 if content:
-                    sent_articles = set(yaml.safe_load(content) or [])
+                    sent_articles_list = yaml.safe_load(content) or []
         except FileNotFoundError:
             pass # File will be created on write
 
+        sent_articles_set = set(sent_articles_list)
+
         # 2. Check if the article is new
-        if article_id not in sent_articles:
+        if article_id not in sent_articles_set:
             print(f"New article found, posting: {message_content.splitlines()[0]}")
             
             # 3. Post to Discord
@@ -81,10 +84,17 @@ def post_if_new(article_id, message_content, webhook_url):
             response = requests.post(webhook_url, json=payload)
             
             if response.status_code < 400:
-                # 4. If successful, add to the list and save
-                sent_articles.add(article_id)
+                # 4. If successful, add to the list
+                sent_articles_list.append(article_id)
+                
+                # 5. Prune the list if it's too long, keeping the newest entries
+                if len(sent_articles_list) > MAX_SENT_ARTICLES:
+                    print(f"Pruning sent articles file. Current size: {len(sent_articles_list)}")
+                    sent_articles_list = sent_articles_list[-MAX_SENT_ARTICLES:]
+                
+                # 6. Save the updated list
                 with open(SENT_ARTICLES_FILE, 'w') as f:
-                    yaml.dump(list(sent_articles), f)
+                    yaml.dump(sent_articles_list, f)
                 return True
             else:
                 print(f"Error sending to webhook: {response.status_code} {response.text}")
