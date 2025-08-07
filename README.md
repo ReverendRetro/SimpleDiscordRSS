@@ -59,13 +59,13 @@ Create a virtual environment to keep the project's dependencies isolated.
 `nano requirements.txt`
 
 ### Add the following lines to the file:
-
-`feedparser`
-`PyYAML`
-`Flask`
-`gunicorn`
-`requests`
-
+```
+feedparser
+PyYAML
+Flask
+gunicorn
+requests
+```
 Save the file (Ctrl+X, Y, Enter) 
 
 ### install the packages:
