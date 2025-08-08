@@ -6,7 +6,7 @@ import os
 import json
 import uuid
 import yaml
-from flask import Flask, render_template_string, request, redirect, url_for, flash, get_flashed_messages
+from flask import Flask, render_template_string, request, redirect, url_for, flash, get_flashed_messages, send_file
 
 # --- Set a common User-Agent for all feedparser requests ---
 # This is not strictly needed here but kept for consistency.
@@ -45,6 +45,7 @@ LAYOUT_TEMPLATE = """
         <nav class="flex justify-center space-x-6 bg-gray-800 p-4 rounded-xl shadow-lg mb-6">
             <a href="{{ url_for('view_feeds') }}" class="text-gray-300 hover:text-white transition-colors">View Feeds</a>
             <a href="{{ url_for('add_feed') }}" class="text-gray-300 hover:text-white transition-colors">Add New Feed</a>
+            <a href="{{ url_for('backup_restore') }}" class="text-gray-300 hover:text-white transition-colors">Backup / Restore</a>
         </nav>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -172,12 +173,43 @@ EDIT_FEED_TEMPLATE = """
 </div>
 """
 
+BACKUP_RESTORE_TEMPLATE = """
+<div class="bg-gray-800 p-6 rounded-xl shadow-lg">
+    <h2 class="text-2xl font-semibold mb-4">Backup & Restore</h2>
+    <p class="text-gray-400 mb-6">Download your current feed configuration or restore from a backup file.</p>
+
+    <div class="mb-6">
+        <h3 class="text-lg font-medium mb-2">Download Backup</h3>
+        <p class="text-gray-400 text-sm mb-3">Saves a copy of your `config.json` file containing all your feeds.</p>
+        <a href="{{ url_for('download_backup') }}" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline transition-colors duration-200 inline-block">
+            Download config.json
+        </a>
+    </div>
+
+    <hr class="border-gray-700 my-6">
+
+    <div>
+        <h3 class="text-lg font-medium mb-2">Restore from Backup</h3>
+        <p class="text-gray-400 text-sm mb-3">Upload a `config.json` file to restore your feeds. This will overwrite your current configuration.</p>
+        <form action="{{ url_for('upload_backup') }}" method="post" enctype="multipart/form-data">
+            <div class="flex items-center space-x-4">
+                <input type="file" name="backup_file" accept=".json" required class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700">
+                <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline transition-colors duration-200">
+                    Upload & Restore
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+"""
+
 # This dictionary will act as a simple template loader.
 TEMPLATES = {
     "layout": LAYOUT_TEMPLATE,
     "view_feeds": VIEW_FEEDS_TEMPLATE,
     "add_feed": ADD_FEED_TEMPLATE,
-    "edit_feed": EDIT_FEED_TEMPLATE
+    "edit_feed": EDIT_FEED_TEMPLATE,
+    "backup_restore": BACKUP_RESTORE_TEMPLATE
 }
 
 # --- Configuration and State Management ---
@@ -280,6 +312,43 @@ def delete_feed(feed_id):
     else:
         flash('Feed not found.', 'error')
     return redirect(url_for('view_feeds'))
+
+@app.route('/backup-restore')
+def backup_restore():
+    full_html = TEMPLATES["layout"].replace('{% block content %}{% endblock %}', TEMPLATES["backup_restore"])
+    return render_template_string(full_html)
+
+@app.route('/backup/download')
+def download_backup():
+    return send_file(CONFIG_FILE, as_attachment=True)
+
+@app.route('/backup/upload', methods=['POST'])
+def upload_backup():
+    if 'backup_file' not in request.files:
+        flash('No file part in the request.', 'error')
+        return redirect(url_for('backup_restore'))
+    
+    file = request.files['backup_file']
+    if file.filename == '':
+        flash('No file selected for uploading.', 'error')
+        return redirect(url_for('backup_restore'))
+
+    if file and file.filename.endswith('.json'):
+        try:
+            content = file.read().decode('utf-8')
+            # Validate that it's a valid JSON file
+            json.loads(content)
+            # Overwrite the config file
+            with open(CONFIG_FILE, 'w') as f:
+                f.write(content)
+            flash('Configuration restored successfully!', 'success')
+        except Exception as e:
+            flash(f'Error processing file: {e}', 'error')
+    else:
+        flash('Invalid file type. Please upload a .json file.', 'error')
+
+    return redirect(url_for('backup_restore'))
+
 
 if __name__ == "__main__":
     print("This script is for the web UI and is not meant to be run directly for production.")
