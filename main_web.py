@@ -39,7 +39,7 @@ LAYOUT_TEMPLATE = """
     <style> body { font-family: 'Inter', sans-serif; } </style>
 </head>
 <body class="bg-gray-900 text-white">
-    <div class="container mx-auto p-4 md:p-8 max-w-4xl">
+    <div class="container mx-auto p-4 md:p-8 max-w-5xl">
         <h1 class="text-3xl font-bold mb-2 text-center">Discord RSS Bot Control Panel</h1>
         
         <nav class="flex justify-center space-x-6 bg-gray-800 p-4 rounded-xl shadow-lg mb-6">
@@ -77,6 +77,7 @@ VIEW_FEEDS_TEMPLATE = """
         <table class="min-w-full text-left text-sm font-light">
             <thead class="border-b border-gray-600 font-medium">
                 <tr>
+                    <th scope="col" class="px-6 py-4">Status</th>
                     <th scope="col" class="px-6 py-4">Feed URL</th>
                     <th scope="col" class="px-6 py-4">Webhook URL</th>
                     <th scope="col" class="px-6 py-4">Interval (s)</th>
@@ -85,7 +86,22 @@ VIEW_FEEDS_TEMPLATE = """
             </thead>
             <tbody>
                 {% for feed in config.FEEDS %}
+                {% set state = feed_state.get(feed.id, {}) %}
+                {% set status_code = state.get('status_code') %}
                 <tr class="border-b border-gray-700">
+                    <td class="px-6 py-4 font-bold">
+                        {% if status_code %}
+                            {% if 200 <= status_code < 300 %}
+                                <span class="text-green-400">{{ status_code }}</span>
+                            {% elif 300 <= status_code < 400 %}
+                                <span class="text-yellow-400">{{ status_code }}</span>
+                            {% else %}
+                                <span class="text-red-400">{{ status_code }}</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="text-gray-500">N/A</span>
+                        {% endif %}
+                    </td>
                     <td class="px-6 py-4 font-mono text-xs truncate" style="max-width: 250px;">{{ feed.url }}</td>
                     <td class="px-6 py-4 font-mono text-xs truncate" style="max-width: 250px;">{{ feed.webhook_url }}</td>
                     <td class="px-6 py-4">{{ feed.update_interval }}</td>
@@ -98,7 +114,7 @@ VIEW_FEEDS_TEMPLATE = """
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="4" class="text-center py-8 text-gray-400">No feeds configured. <a href="{{ url_for('add_feed') }}" class="text-indigo-400 hover:underline">Add one now!</a></td>
+                    <td colspan="5" class="text-center py-8 text-gray-400">No feeds configured. <a href="{{ url_for('add_feed') }}" class="text-indigo-400 hover:underline">Add one now!</a></td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -188,6 +204,17 @@ def load_config():
     with open(CONFIG_FILE, 'r') as f:
         return json.load(f)
 
+def load_feed_state():
+    try:
+        with open(FEED_STATE_FILE, 'r') as f:
+            content = f.read()
+            if not content:
+                return {}
+            return json.loads(content)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
 # --- Initialize files on application startup ---
 initialize_files()
 
@@ -196,8 +223,9 @@ initialize_files()
 @app.route('/')
 def view_feeds():
     config = load_config()
+    feed_state = load_feed_state()
     full_html = TEMPLATES["layout"].replace('{% block content %}{% endblock %}', TEMPLATES["view_feeds"])
-    return render_template_string(full_html, config=config)
+    return render_template_string(full_html, config=config, feed_state=feed_state)
 
 @app.route('/add', methods=['GET', 'POST'])
 def add_feed():
@@ -211,8 +239,7 @@ def add_feed():
         }
         config['FEEDS'].append(new_feed)
         save_config(config)
-        flash(f'Feed "{new_feed["url"]}" added! The scheduler will pick it up on its next cycle.', 'success')
-        # Note: The immediate check logic is removed as the scheduler now handles all checks.
+        flash(f'Feed "{new_feed["url"]}" added! The scheduler will perform an initial check on its next cycle.', 'success')
         return redirect(url_for('view_feeds'))
     
     full_html = TEMPLATES["layout"].replace('{% block content %}{% endblock %}', TEMPLATES["add_feed"])
