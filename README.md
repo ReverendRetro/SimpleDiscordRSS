@@ -1,7 +1,7 @@
 # SimpleDiscordRSS
 A basic bot to fetch RSS feeds and send them to a Discord channel via webhooks. No limit on feeds, channels, servers. Easy to self host at home or on a remote server. Just a Simple Discord RSS Bot with intuitive Web UI
 
-A lightweight, self-hostable Discord bot that fetches RSS/Atom feeds and posts new entries to your server using webhooks. It comes with a simple, clean web interface for easy management.
+A lightweight, self-hostable Discord bot that fetches RSS/Atom feeds and posts new entries to your server using webhooks. It comes with a simple, clean web interface for easy management. Requires an admin account stored locally with a salted and hashed password.
 
 <img src="https://github.com/ReverendRetro/SimpleDiscordRSS/blob/main/MainPage-1.png?raw=true"> 
 
@@ -67,6 +67,7 @@ PyYAML
 Flask
 gunicorn
 requests
+werkzeug
 ```
 
 Save the file (Ctrl+X, Y, Enter) and then install the packages:
@@ -134,21 +135,21 @@ Now, tell systemd to recognize, enable, and start your new services.
 `sudo systemctl daemon-reload`
 
 ### Enable and start the web UI service
-`sudo systemctl enable discord-rss-web.service`
+`sudo systemctl enable discord-rss-web.service` <br>
 `sudo systemctl start discord-rss-web.service`
 
 ### Enable and start the scheduler service
-`sudo systemctl enable discord-rss-scheduler.service`
+`sudo systemctl enable discord-rss-scheduler.service`<br>
 `sudo systemctl start discord-rss-scheduler.service`
 
 
 ### Check the Status
 You can check the status of each service independently:
-`sudo systemctl status discord-rss-web.service`
+`sudo systemctl status discord-rss-web.service`<br>
 `sudo systemctl status discord-rss-scheduler.service`
 
 Check for errors:
-`sudo journalctl -u discord-rss-scheduler -n 50 --no-pager`
+`sudo journalctl -u discord-rss-scheduler -n 50 --no-pager`<br>
 `sudo systemctl start discord-rss-web -n 50 --no-pager`
 
 
