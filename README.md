@@ -46,6 +46,9 @@ Create a virtual environment to keep the project's dependencies isolated.
 ### Navigate to your project directory
 `cd /path/to/your/discord-rss-bot`
 
+### Ensure needed deps are installed
+`sudo apt install python3 python3-venv python3-pip -y`
+
 ### Create the virtual environment
 `python3 -m venv venv`
 
