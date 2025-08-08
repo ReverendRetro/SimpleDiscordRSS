@@ -9,7 +9,7 @@ import json
 import threading
 import requests
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 # --- Configuration & State Files ---
 CONFIG_FILE = "config.json"
@@ -63,7 +63,6 @@ def post_if_new(article_id, message_content, webhook_url):
     This function is thread-safe and prunes the sent articles list.
     """
     with file_lock:
-        # 1. Read the current list of sent articles
         sent_articles_list = []
         try:
             with open(SENT_ARTICLES_FILE, 'r') as f:
@@ -71,35 +70,27 @@ def post_if_new(article_id, message_content, webhook_url):
                 if content:
                     sent_articles_list = yaml.safe_load(content) or []
         except FileNotFoundError:
-            pass # File will be created on write
+            pass
 
         sent_articles_set = set(sent_articles_list)
 
-        # 2. Check if the article is new
         if article_id not in sent_articles_set:
             print(f"New article found, posting: {message_content.splitlines()[0]}")
-            
-            # 3. Post to Discord
             payload = {"content": message_content}
             response = requests.post(webhook_url, json=payload)
             
             if response.status_code < 400:
-                # 4. If successful, add to the list
                 sent_articles_list.append(article_id)
-                
-                # 5. Prune the list if it's too long, keeping the newest entries
                 if len(sent_articles_list) > MAX_SENT_ARTICLES:
-                    print(f"Pruning sent articles file. Current size: {len(sent_articles_list)}")
                     sent_articles_list = sent_articles_list[-MAX_SENT_ARTICLES:]
                 
-                # 6. Save the updated list
                 with open(SENT_ARTICLES_FILE, 'w') as f:
                     yaml.dump(sent_articles_list, f)
                 return True
             else:
                 print(f"Error sending to webhook: {response.status_code} {response.text}")
                 return False
-        return False # Article was already sent
+        return False
 
 class FeedScheduler:
     def __init__(self):
@@ -116,52 +107,90 @@ class FeedScheduler:
             config = load_config()
             feed_state = load_feed_state()
             now = datetime.now(timezone.utc)
-
+            
+            state_changed = False
             for feed_config in config.get("FEEDS", []):
                 feed_id = feed_config['id']
-                last_checked_str = feed_state.get(feed_id)
+                state_entry = feed_state.get(feed_id, {})
+                last_checked_str = state_entry.get('last_checked')
                 last_checked = datetime.fromisoformat(last_checked_str) if last_checked_str else None
                 
-                # Determine if this is the first time we're checking this feed.
                 is_initial_check = not last_checked
 
                 if is_initial_check or (now - last_checked).total_seconds() >= feed_config['update_interval']:
                     print(f"Processing feed: {feed_config['url']}")
-                    threading.Thread(target=self.check_single_feed, args=(feed_config, is_initial_check), daemon=True).start()
-                    feed_state[feed_id] = now.isoformat()
+                    status_code = self.check_single_feed(feed_config, is_initial_check)
+                    feed_state[feed_id] = {
+                        'last_checked': now.isoformat(),
+                        'status_code': status_code
+                    }
+                    state_changed = True
             
-            save_feed_state(feed_state)
-            time.sleep(60) # Check every 60 seconds
+            if state_changed:
+                save_feed_state(feed_state)
+            
+            time.sleep(60)
         print("Scheduler stopped.")
 
     def check_single_feed(self, feed_config, initial_check=False):
         """
-        Fetches and posts new entries for a single feed via webhook.
-        :param feed_config: The configuration dictionary for the feed.
-        :param initial_check: If True, only the latest new item is posted. Otherwise, all new items are posted.
+        Fetches, posts new entries, and returns the status code.
         """
+        status_code = None
         try:
             feed_data = feedparser.parse(feed_config['url'])
+            status_code = feed_data.get('status', 500) # Default to 500 if status is missing
             if feed_data.bozo:
                 print(f"Warning: Feed {feed_config['url']} may be malformed.")
 
+            now = datetime.now(timezone.utc)
+            time_cutoff = now - timedelta(hours=24)
+            
+            recent_entries = []
+            for entry in feed_data.entries:
+                published_time = None
+                if 'published_parsed' in entry and entry.published_parsed:
+                    published_time = datetime.fromtimestamp(time.mktime(entry.published_parsed), tz=timezone.utc)
+                elif 'updated_parsed' in entry and entry.updated_parsed:
+                    published_time = datetime.fromtimestamp(time.mktime(entry.updated_parsed), tz=timezone.utc)
+
+                if published_time and published_time > time_cutoff:
+                    recent_entries.append(entry)
+
             if initial_check:
-                # On the first run, only post the single most recent article.
-                if feed_data.entries:
-                    print("Performing initial check, processing only the latest entry.")
-                    latest_entry = feed_data.entries[0]
+                if recent_entries:
+                    latest_entry = recent_entries[0]
                     article_id = latest_entry.get('id', latest_entry.link)
                     message_content = f"**{feed_data.feed.title}**: {latest_entry.title}\n{latest_entry.link}"
                     post_if_new(article_id, message_content, feed_config['webhook_url'])
+
+                    all_recent_ids = {entry.get('id', entry.link) for entry in recent_entries}
+                    with file_lock:
+                        sent_articles_list = []
+                        try:
+                            with open(SENT_ARTICLES_FILE, 'r') as f:
+                                content = f.read()
+                                if content: sent_articles_list = yaml.safe_load(content) or []
+                        except FileNotFoundError: pass
+                        sent_articles_set = set(sent_articles_list)
+                        sent_articles_set.update(all_recent_ids)
+                        final_list = list(sent_articles_set)
+                        if len(final_list) > MAX_SENT_ARTICLES:
+                            final_list = final_list[-MAX_SENT_ARTICLES:]
+                        with open(SENT_ARTICLES_FILE, 'w') as f:
+                            yaml.dump(final_list, f)
             else:
-                # On subsequent runs, post all new articles, oldest first.
-                for entry in reversed(feed_data.entries):
+                for entry in reversed(recent_entries):
                     article_id = entry.get('id', entry.link)
                     message_content = f"**{feed_data.feed.title}**: {entry.title}\n{entry.link}"
                     post_if_new(article_id, message_content, feed_config['webhook_url'])
 
         except Exception as e:
             print(f"Error processing feed {feed_config['url']}: {e}")
+            status_code = 500 # Indicate an internal error
+        finally:
+            return status_code
+
 
 if __name__ == "__main__":
     initialize_files()
