@@ -1,26 +1,27 @@
 # main_web.py
 # A Discord RSS bot with a multi-page web interface for configuration.
-# This version is for the web UI only. The scheduler runs as a separate process.
+# This version includes a secure, first-time setup admin login system.
 
 import os
 import json
 import uuid
 import yaml
-from flask import Flask, render_template_string, request, redirect, url_for, flash, get_flashed_messages, send_file
+from flask import Flask, render_template_string, request, redirect, url_for, flash, get_flashed_messages, send_file, session, g
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # --- Set a common User-Agent for all feedparser requests ---
-# This is not strictly needed here but kept for consistency.
 import feedparser
 feedparser.USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/116.0"
 
 # --- Flask Web App Setup ---
 app = Flask(__name__)
-app.secret_key = os.urandom(24) # Required for flashing messages
 
 # --- Configuration & State Files ---
 CONFIG_FILE = "config.json"
 SENT_ARTICLES_FILE = "sent_articles.yaml"
 FEED_STATE_FILE = "feed_state.json"
+USER_FILE = "user.json" # Stores the admin user's credentials
+SECRET_KEY_FILE = "secret.key" # Stores the Flask secret key
 
 # --- HTML Templates ---
 
@@ -40,13 +41,20 @@ LAYOUT_TEMPLATE = """
 </head>
 <body class="bg-gray-900 text-white">
     <div class="container mx-auto p-4 md:p-8 max-w-5xl">
-        <h1 class="text-3xl font-bold mb-2 text-center">Discord RSS Bot Control Panel</h1>
+        <div class="flex justify-between items-center mb-2">
+            <h1 class="text-3xl font-bold text-center flex-grow">Discord RSS Bot Control Panel</h1>
+            {% if g.user %}
+                <a href="{{ url_for('logout') }}" class="text-gray-400 hover:text-white transition-colors text-sm">Logout</a>
+            {% endif %}
+        </div>
         
+        {% if g.user %}
         <nav class="flex justify-center space-x-6 bg-gray-800 p-4 rounded-xl shadow-lg mb-6">
             <a href="{{ url_for('view_feeds') }}" class="text-gray-300 hover:text-white transition-colors">View Feeds</a>
             <a href="{{ url_for('add_feed') }}" class="text-gray-300 hover:text-white transition-colors">Add New Feed</a>
             <a href="{{ url_for('backup_restore') }}" class="text-gray-300 hover:text-white transition-colors">Backup / Restore</a>
         </nav>
+        {% endif %}
 
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -64,6 +72,45 @@ LAYOUT_TEMPLATE = """
     </div>
 </body>
 </html>
+"""
+
+SETUP_TEMPLATE = """
+<div class="bg-gray-800 p-6 rounded-xl shadow-lg max-w-md mx-auto">
+    <h2 class="text-2xl font-semibold mb-4 text-center">Create Admin Account</h2>
+    <p class="text-center text-gray-400 mb-6">Welcome! As this is the first time running the application, please create an admin account to secure the control panel.</p>
+    <form method="post">
+        <div class="mb-4">
+            <label for="username" class="block text-gray-300 text-sm font-bold mb-2">Username</label>
+            <input type="text" name="username" id="username" class="shadow appearance-none border border-gray-700 rounded-lg w-full py-2 px-3 bg-gray-700 text-gray-200 leading-tight focus:outline-none focus:shadow-outline" required>
+        </div>
+        <div class="mb-6">
+            <label for="password" class="block text-gray-300 text-sm font-bold mb-2">Password</label>
+            <input type="password" name="password" id="password" class="shadow appearance-none border border-gray-700 rounded-lg w-full py-2 px-3 bg-gray-700 text-gray-200 leading-tight focus:outline-none focus:shadow-outline" required>
+        </div>
+        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline transition-colors duration-200">
+            Create Account
+        </button>
+    </form>
+</div>
+"""
+
+LOGIN_TEMPLATE = """
+<div class="bg-gray-800 p-6 rounded-xl shadow-lg max-w-md mx-auto">
+    <h2 class="text-2xl font-semibold mb-4 text-center">Admin Login</h2>
+    <form method="post">
+        <div class="mb-4">
+            <label for="username" class="block text-gray-300 text-sm font-bold mb-2">Username</label>
+            <input type="text" name="username" id="username" class="shadow appearance-none border border-gray-700 rounded-lg w-full py-2 px-3 bg-gray-700 text-gray-200 leading-tight focus:outline-none focus:shadow-outline" required>
+        </div>
+        <div class="mb-6">
+            <label for="password" class="block text-gray-300 text-sm font-bold mb-2">Password</label>
+            <input type="password" name="password" id="password" class="shadow appearance-none border border-gray-700 rounded-lg w-full py-2 px-3 bg-gray-700 text-gray-200 leading-tight focus:outline-none focus:shadow-outline" required>
+        </div>
+        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline transition-colors duration-200">
+            Login
+        </button>
+    </form>
+</div>
 """
 
 VIEW_FEEDS_TEMPLATE = """
@@ -209,7 +256,9 @@ TEMPLATES = {
     "view_feeds": VIEW_FEEDS_TEMPLATE,
     "add_feed": ADD_FEED_TEMPLATE,
     "edit_feed": EDIT_FEED_TEMPLATE,
-    "backup_restore": BACKUP_RESTORE_TEMPLATE
+    "backup_restore": BACKUP_RESTORE_TEMPLATE,
+    "setup": SETUP_TEMPLATE,
+    "login": LOGIN_TEMPLATE
 }
 
 # --- Configuration and State Management ---
@@ -222,15 +271,11 @@ def initialize_files():
     """Ensure all necessary files exist before the app starts."""
     if not os.path.exists(CONFIG_FILE):
         save_config({"FEEDS": []})
-        print(f"Created default {CONFIG_FILE}")
     if not os.path.exists(SENT_ARTICLES_FILE):
-        with open(SENT_ARTICLES_FILE, 'w') as f:
-            yaml.dump([], f)
-        print(f"Created default {SENT_ARTICLES_FILE}")
+        with open(SENT_ARTICLES_FILE, 'w') as f: yaml.dump([], f)
     if not os.path.exists(FEED_STATE_FILE):
-        with open(FEED_STATE_FILE, 'w') as f:
-            json.dump({}, f)
-        print(f"Created default {FEED_STATE_FILE}")
+        with open(FEED_STATE_FILE, 'w') as f: json.dump({}, f)
+    # User file is checked separately by the auth logic
 
 def load_config():
     with open(CONFIG_FILE, 'r') as f:
@@ -240,17 +285,113 @@ def load_feed_state():
     try:
         with open(FEED_STATE_FILE, 'r') as f:
             content = f.read()
-            if not content:
-                return {}
+            if not content: return {}
             return json.loads(content)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
-
 # --- Initialize files on application startup ---
 initialize_files()
 
+# --- Authentication Logic ---
+
+def get_secret_key():
+    """Generates a secret key and saves it, or loads the existing one."""
+    if not os.path.exists(SECRET_KEY_FILE):
+        print("Generating new secret key...")
+        key = os.urandom(24)
+        with open(SECRET_KEY_FILE, 'wb') as f:
+            f.write(key)
+        return key
+    else:
+        with open(SECRET_KEY_FILE, 'rb') as f:
+            return f.read()
+
+app.secret_key = get_secret_key()
+
+def admin_user_exists():
+    return os.path.exists(USER_FILE)
+
+def get_admin_user():
+    """Safely loads the admin user from the JSON file."""
+    if not os.path.exists(USER_FILE):
+        return None
+    try:
+        with open(USER_FILE, 'r') as f:
+            content = f.read()
+            if not content:
+                return None
+            return json.loads(content)
+    except (json.JSONDecodeError, FileNotFoundError):
+        return None
+
+@app.before_request
+def load_logged_in_user():
+    user_id = session.get('user_id')
+    g.user = get_admin_user() if user_id else None
+
+@app.before_request
+def require_login_or_setup():
+    # Allow access to setup if no admin exists
+    if not admin_user_exists() and request.endpoint != 'setup':
+        return redirect(url_for('setup'))
+    
+    # If admin exists, require login for all pages except login/setup
+    if admin_user_exists() and g.user is None and request.endpoint not in ['login', 'setup']:
+        return redirect(url_for('login'))
+
 # --- Flask Routes ---
+
+@app.route('/setup', methods=['GET', 'POST'])
+def setup():
+    if admin_user_exists():
+        return redirect(url_for('login'))
+    
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        
+        user_data = {
+            "id": 1, # Static ID for the single admin user
+            "username": username,
+            "password": generate_password_hash(password)
+        }
+        with open(USER_FILE, 'w') as f:
+            json.dump(user_data, f)
+        
+        flash('Admin account created successfully! Please log in.', 'success')
+        return redirect(url_for('login'))
+
+    full_html = TEMPLATES["layout"].replace('{% block content %}{% endblock %}', TEMPLATES["setup"])
+    return render_template_string(full_html)
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if g.user:
+        return redirect(url_for('view_feeds'))
+    
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        user = get_admin_user()
+        error = "Invalid username or password." # Generic error for security
+
+        if user and user.get('username') == username and check_password_hash(user.get('password', ''), password):
+            session.clear()
+            session['user_id'] = user['id']
+            # After setting the session, we must redirect for the changes to take effect in the next request.
+            return redirect(url_for('view_feeds'))
+        else:
+            flash(error, 'error')
+
+    full_html = TEMPLATES["layout"].replace('{% block content %}{% endblock %}', TEMPLATES["login"])
+    return render_template_string(full_html)
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash('You have been logged out.', 'success')
+    return redirect(url_for('login'))
 
 @app.route('/')
 def view_feeds():
