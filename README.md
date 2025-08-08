@@ -72,10 +72,10 @@ Save the file (Ctrl+X, Y, Enter) and then install the packages:
 
 ## 4. Get a Discord Webhook URL
 You'll need a webhook URL for each channel you want to post to.
-In your Discord server, go to the channel settings (click the ⚙️ icon).
-Navigate to the Integrations tab.
-Click "Create Webhook".
-Give the webhook a name (e.g., "RSS Feeds") and copy the Webhook URL.
+- In your Discord server, go to the channel settings (click the ⚙️ icon).
+- Navigate to the Integrations tab.
+- Click "Create Webhook".
+- Give the webhook a name (e.g., "RSS Feeds") and copy the Webhook URL.
 
 
 ## 5. Running the Bot as a Service (Recommended)
