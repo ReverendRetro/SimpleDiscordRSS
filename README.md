@@ -3,7 +3,7 @@ A basic bot to fetch RSS feeds and send them to a Discord channel via webhooks. 
 
 A lightweight, self-hostable Discord bot that fetches RSS/Atom feeds and posts new entries to your server using webhooks. It comes with a simple, clean web interface for easy management.
 
-<img src="https://github.com/ReverendRetro/SimpleDiscordRSS/blob/main/MainPage.png?raw=true"> 
+<img src="https://github.com/ReverendRetro/SimpleDiscordRSS/blob/main/MainPage-1.png?raw=true"> 
 
 # Features
 
