@@ -40,7 +40,7 @@ LAYOUT_TEMPLATE = """
     <style> body { font-family: 'Inter', sans-serif; } </style>
 </head>
 <body class="bg-gray-900 text-white">
-    <div class="container mx-auto p-4 md:p-8 max-w-5xl">
+    <div class="container mx-auto p-4 md:p-8 max-w-6xl">
         <div class="flex justify-between items-center mb-2">
             <h1 class="text-3xl font-bold text-center flex-grow">Discord RSS Bot Control Panel</h1>
             {% if g.user %}
@@ -126,6 +126,7 @@ VIEW_FEEDS_TEMPLATE = """
             <thead class="border-b border-gray-600 font-medium">
                 <tr>
                     <th scope="col" class="px-6 py-4">Status</th>
+                    <th scope="col" class="px-6 py-4">Server/Channel</th>
                     <th scope="col" class="px-6 py-4">Feed URL</th>
                     <th scope="col" class="px-6 py-4">Webhook URL</th>
                     <th scope="col" class="px-6 py-4">Interval (s)</th>
@@ -150,6 +151,7 @@ VIEW_FEEDS_TEMPLATE = """
                             <span class="text-gray-500">N/A</span>
                         {% endif %}
                     </td>
+                    <td class="px-6 py-4 text-gray-300 truncate" style="max-width: 200px;">{{ feed.get('name', 'Not Set') }}</td>
                     <td class="px-6 py-4 font-mono text-xs truncate" style="max-width: 250px;">{{ feed.url }}</td>
                     <td class="px-6 py-4 font-mono text-xs truncate" style="max-width: 250px;">{{ feed.webhook_url }}</td>
                     <td class="px-6 py-4">{{ feed.update_interval }}</td>
@@ -162,7 +164,7 @@ VIEW_FEEDS_TEMPLATE = """
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="5" class="text-center py-8 text-gray-400">No feeds configured. <a href="{{ url_for('add_feed') }}" class="text-indigo-400 hover:underline">Add one now!</a></td>
+                    <td colspan="6" class="text-center py-8 text-gray-400">No feeds configured. <a href="{{ url_for('add_feed') }}" class="text-indigo-400 hover:underline">Add one now!</a></td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -175,6 +177,10 @@ ADD_FEED_TEMPLATE = """
 <div class="bg-gray-800 p-6 rounded-xl shadow-lg">
     <h2 class="text-2xl font-semibold mb-4">Add a New Feed</h2>
     <form action="{{ url_for('add_feed') }}" method="post">
+        <div class="mb-4">
+            <label for="name" class="block text-gray-300 text-sm font-bold mb-2">Server/Channel Name (Optional)</label>
+            <input type="text" name="name" id="name" placeholder="e.g., My Server - #announcements" class="shadow appearance-none border border-gray-700 rounded-lg w-full py-2 px-3 bg-gray-700 text-gray-200 leading-tight focus:outline-none focus:shadow-outline focus:border-indigo-500">
+        </div>
         <div class="mb-4">
             <label for="url" class="block text-gray-300 text-sm font-bold mb-2">RSS Feed URL</label>
             <input type="url" name="url" id="url" class="shadow appearance-none border border-gray-700 rounded-lg w-full py-2 px-3 bg-gray-700 text-gray-200 leading-tight focus:outline-none focus:shadow-outline focus:border-indigo-500" required>
@@ -198,6 +204,10 @@ EDIT_FEED_TEMPLATE = """
 <div class="bg-gray-800 p-6 rounded-xl shadow-lg">
     <h2 class="text-2xl font-semibold mb-4">Edit Feed</h2>
     <form action="{{ url_for('edit_feed', feed_id=feed.id) }}" method="post">
+        <div class="mb-4">
+            <label for="name" class="block text-gray-300 text-sm font-bold mb-2">Server/Channel Name (Optional)</label>
+            <input type="text" name="name" id="name" value="{{ feed.get('name', '') }}" placeholder="e.g., My Server - #announcements" class="shadow appearance-none border border-gray-700 rounded-lg w-full py-2 px-3 bg-gray-700 text-gray-200 leading-tight focus:outline-none focus:shadow-outline focus:border-indigo-500">
+        </div>
         <div class="mb-4">
             <label for="url" class="block text-gray-300 text-sm font-bold mb-2">RSS Feed URL</label>
             <input type="url" name="url" id="url" value="{{ feed.url }}" class="shadow appearance-none border border-gray-700 rounded-lg w-full py-2 px-3 bg-gray-700 text-gray-200 leading-tight focus:outline-none focus:shadow-outline focus:border-indigo-500" required>
@@ -379,7 +389,6 @@ def login():
         if user and user.get('username') == username and check_password_hash(user.get('password', ''), password):
             session.clear()
             session['user_id'] = user['id']
-            # After setting the session, we must redirect for the changes to take effect in the next request.
             return redirect(url_for('view_feeds'))
         else:
             flash(error, 'error')
@@ -406,6 +415,7 @@ def add_feed():
         config = load_config()
         new_feed = {
             "id": str(uuid.uuid4()),
+            "name": request.form['name'],
             "url": request.form['url'],
             "webhook_url": request.form['webhook_url'],
             "update_interval": int(request.form['update_interval'])
@@ -430,6 +440,7 @@ def edit_feed(feed_id):
     if request.method == 'POST':
         for i, feed in enumerate(config['FEEDS']):
             if feed['id'] == feed_id:
+                config['FEEDS'][i]['name'] = request.form['name']
                 config['FEEDS'][i]['url'] = request.form['url']
                 config['FEEDS'][i]['webhook_url'] = request.form['webhook_url']
                 config['FEEDS'][i]['update_interval'] = int(request.form['update_interval'])
