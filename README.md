@@ -13,7 +13,7 @@ A lightweight, self-hostable Discord bot that fetches RSS Atom feeds and posts n
 
 - Per-Feed Configuration: Set custom update intervals for each individual feed.
 
-- Initial Post on Add: Immediately fetches and posts the single latest article when a new feed is added to confirm it's working.
+- Initial Post on Add: Immediately fetches and posts the single latest article when a new feed is added to confirm it's working. (Only if latest feed was posted within the past 24 hours)
 
 - Stateful: Remembers which articles have already been posted to prevent duplicates, even after a restart.
 
